@@ -1,0 +1,894 @@
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>Teachable Machine + Arduino</title>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+
+<script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+
+<style>
+
+:root {
+  --primary: #4f46e5;
+  --danger: #dc2626;
+  --success: #16a34a;
+  --bg: #f1f5f9;
+}
+
+body {
+  font-family: 'Segoe UI', sans-serif;
+  background: var(--bg);
+  color: #1e293b;
+  margin: 0;
+  padding: 20px;
+  display: flex;
+  justify-content: center;
+  min-height: 100vh;
+}
+
+.container {
+  width: 100%;
+  max-width: 700px;
+  background: white;
+  padding: 30px;
+  border-radius: 16px;
+  box-shadow: 0 4px 10px #0002;
+  text-align: center;
+}
+
+h1 {
+  color: #0f172a;
+}
+
+button {
+  padding: 12px 18px;
+  font-size: 15px;
+  font-weight: bold;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  color: white;
+  margin: 5px;
+}
+
+button:disabled {
+  background: #94a3b8;
+  cursor: not-allowed;
+}
+
+#btn-conectar {
+  background: #0891b2;
+}
+
+#btn-iniciar {
+  background: var(--primary);
+}
+
+#btn-desconectar {
+  background: var(--danger);
+}
+
+.status {
+  padding: 13px;
+  background: #e2e8f0;
+  border-radius: 10px;
+  margin: 12px 0;
+  font-weight: bold;
+}
+
+#webcam-container {
+  margin: 20px auto;
+  display: inline-block;
+  border-radius: 12px;
+  overflow: hidden;
+  background: black;
+}
+
+.resultado {
+  background: #eef2ff;
+  border: 2px solid #4f46e5;
+  border-radius: 12px;
+  padding: 15px;
+  margin: 20px 0;
+}
+
+#objeto-detectado {
+  font-size: 24px;
+  font-weight: bold;
+  color: #4338ca;
+  margin-top: 10px;
+}
+
+#label-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  text-align: left;
+  margin-top: 20px;
+}
+
+.prediction-bar {
+  background: #e2e8f0;
+  border-radius: 8px;
+  overflow: hidden;
+  height: 30px;
+  position: relative;
+}
+
+.prediction-fill {
+  background: #4f46e5;
+  height: 100%;
+  width: 0%;
+  transition: width 0.2s;
+}
+
+.prediction-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 10px;
+  font-size: 13px;
+  font-weight: bold;
+  color: #0f172a;
+}
+
+.panel {
+  text-align: left;
+  background: #f8fafc;
+  padding: 18px;
+  border-radius: 10px;
+  margin-top: 20px;
+}
+
+.led-container {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 15px;
+  margin-top: 20px;
+}
+
+.led-item {
+  background: #e2e8f0;
+  padding: 15px 5px;
+  border-radius: 10px;
+  text-align: center;
+}
+
+.led {
+  width: 25px;
+  height: 25px;
+  border-radius: 50%;
+  background: #64748b;
+  margin: 0 auto 10px;
+  border: 2px solid #475569;
+  transition: 0.2s;
+}
+
+.led.encendido {
+  background: #22c55e;
+  box-shadow: 0 0 15px #22c55e;
+}
+
+.led-item span {
+  font-size: 12px;
+  font-weight: bold;
+}
+
+#servo-status {
+  font-size: 22px;
+  color: #4338ca;
+  font-weight: bold;
+}
+
+@media(max-width: 450px) {
+  .led-container {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .container {
+    padding: 18px;
+  }
+}
+
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+<h1>TEACHABLE MACHINE + ARDUINO</h1>
+
+<p>Reconocimiento de seis clases y control de seis LED</p>
+
+<!-- ESTADO DE ARDUINO -->
+<div class="panel">
+
+<h3>Conexión Arduino</h3>
+
+<div id="arduino-status" class="status">
+  🔴 Arduino desconectado
+</div>
+
+<button id="btn-conectar" onclick="conectarArduino()">
+  🔌 CONECTAR ARDUINO
+</button>
+
+</div>
+
+<!-- ESTADO DEL MODELO -->
+<div id="status" class="status">
+  Modelo desconectado
+</div>
+
+<button id="btn-iniciar" onclick="iniciarModelo()" disabled>
+  ▶ INICIAR MODELO
+</button>
+
+<button id="btn-desconectar" onclick="desconectarTodo()" disabled>
+  ⏹ DESCONECTAR TODO
+</button>
+
+<!-- CÁMARA -->
+<div id="webcam-container"></div>
+
+<!-- RESULTADO -->
+<div class="resultado">
+
+<h3>Objeto detectado:</h3>
+
+<div id="objeto-detectado">
+  Esperando detección...
+</div>
+
+</div>
+
+<!-- PREDICCIONES -->
+<h3>Porcentaje de detección por clase</h3>
+
+<div id="label-container"></div>
+
+<!-- LEDS -->
+<div class="panel">
+
+<h3>Estado de los seis LED</h3>
+
+<div class="led-container">
+
+<div class="led-item">
+  <div id="led-0" class="led"></div>
+  <span>LED 1 - Teléfono</span>
+</div>
+
+<div class="led-item">
+  <div id="led-1" class="led"></div>
+  <span>LED 2 - Teclado</span>
+</div>
+
+<div class="led-item">
+  <div id="led-2" class="led"></div>
+  <span>LED 3 - Computadora</span>
+</div>
+
+<div class="led-item">
+  <div id="led-3" class="led"></div>
+  <span>LED 4 - Audífonos</span>
+</div>
+
+<div class="led-item">
+  <div id="led-4" class="led"></div>
+  <span>LED 5 - Nada</span>
+</div>
+
+<div class="led-item">
+  <div id="led-5" class="led"></div>
+  <span>LED 6 - Mouse</span>
+</div>
+
+</div>
+
+<h3>Servomotor</h3>
+
+<div id="servo-status">0°</div>
+
+</div>
+
+<div class="panel">
+
+<h3>Clases del modelo</h3>
+
+<p>1. Teléfono</p>
+<p>2. Teclado</p>
+<p>3. Computadora</p>
+<p>4. Audífonos</p>
+<p>5. Nada</p>
+<p>6. Mouse</p>
+
+</div>
+
+</div>
+
+<script>
+
+// ======================================
+// CONFIGURACIÓN
+// ======================================
+
+// Los tres archivos están en la misma carpeta.
+const URL_MODELO = "./";
+
+// Orden de las seis clases.
+const clasesEsperadas = [
+  "telefono",
+  "teclado",
+  "compútadora",
+  "audifonos",
+  "mouse",
+  "nada"
+];
+
+// Ángulos del servomotor.
+const angulos = [30, 60, 90, 120, 150, 180];
+
+const UMBRAL = 0.80;
+
+// Variables del modelo.
+let model = null;
+let webcam = null;
+let maxPredictions = 0;
+let isRunning = false;
+let iniciando = false;
+
+// Variables de Arduino.
+let puerto = null;
+let escritor = null;
+let arduinoConectado = false;
+
+// Control de predicciones.
+let ultimaClase = -1;
+let ciclo = 0;
+
+// Elementos HTML.
+const btnConectar =
+  document.getElementById("btn-conectar");
+
+const btnIniciar =
+  document.getElementById("btn-iniciar");
+
+const btnDesconectar =
+  document.getElementById("btn-desconectar");
+
+const status =
+  document.getElementById("status");
+
+const arduinoStatus =
+  document.getElementById("arduino-status");
+
+
+// ======================================
+// CONECTAR ARDUINO FÍSICO O VIRTUAL
+// ======================================
+
+async function conectarArduino() {
+
+  if (!("serial" in navigator)) {
+    alert(
+      "Tu navegador no soporta Web Serial. " +
+      "Utiliza Google Chrome o Microsoft Edge."
+    );
+    return;
+  }
+
+  if (arduinoConectado) return;
+
+  btnConectar.disabled = true;
+
+  arduinoStatus.innerText =
+    "⏳ Selecciona el puerto de Arduino...";
+
+  try {
+
+    // Seleccionar puerto serial.
+    puerto = await navigator.serial.requestPort();
+
+    // Información disponible del puerto.
+    const info = puerto.getInfo();
+
+    let tipo = "Puerto serial compatible";
+
+    if (info.usbVendorId) {
+      tipo = "Arduino físico / dispositivo USB";
+    } else {
+      tipo = "Puerto serial sin identificación USB";
+    }
+
+    // Abrir comunicación.
+    await puerto.open({
+      baudRate: 9600
+    });
+
+    // Crear escritor serial.
+    escritor = puerto.writable.getWriter();
+
+    arduinoConectado = true;
+
+    arduinoStatus.innerText =
+      "🟢 Arduino conectado - " + tipo;
+
+    btnConectar.disabled = true;
+    btnIniciar.disabled = false;
+
+    alert("¡Arduino conectado correctamente!");
+
+  } catch (error) {
+
+    console.error(error);
+
+    arduinoStatus.innerText =
+      "🔴 No se pudo conectar Arduino";
+
+    btnConectar.disabled = false;
+
+    alert(
+      "Error de conexión: " + error.message +
+      "\nVerifica que el puerto no esté ocupado."
+    );
+  }
+}
+
+
+// ======================================
+// ENVIAR COMANDOS A ARDUINO
+// ======================================
+
+async function enviarArduino(comando) {
+
+  if (!escritor || !arduinoConectado) {
+    return;
+  }
+
+  const datos = new TextEncoder().encode(
+    comando + "\n"
+  );
+
+  await escritor.write(datos);
+}
+
+
+// ======================================
+// ACTUALIZAR LEDS EN PANTALLA
+// ======================================
+
+function actualizarLEDs(indice) {
+
+  for (let i = 0; i < 6; i++) {
+
+    const led = document.getElementById("led-" + i);
+
+    led.classList.remove("encendido");
+
+    if (i === indice) {
+      led.classList.add("encendido");
+    }
+  }
+
+  if (indice >= 0 && indice < 6) {
+    document.getElementById("servo-status").innerText =
+      angulos[indice] + "°";
+  } else {
+    document.getElementById("servo-status").innerText =
+      "0°";
+  }
+}
+
+
+// ======================================
+// INICIAR MODELO
+// ======================================
+
+async function iniciarModelo() {
+
+  if (isRunning || iniciando) return;
+
+  if (!arduinoConectado) {
+    alert("Primero conecta Arduino.");
+    return;
+  }
+
+  iniciando = true;
+  btnIniciar.disabled = true;
+
+  status.innerText = "Cargando modelo...";
+
+  try {
+
+    // Cargar archivos de Teachable Machine.
+    const modelURL = URL_MODELO + "model.json";
+    const metadataURL = URL_MODELO + "metadata.json";
+
+    model = await tmImage.load(
+      modelURL,
+      metadataURL
+    );
+
+    maxPredictions = model.getTotalClasses();
+
+    if (maxPredictions !== 6) {
+      throw new Error(
+        "El modelo debe tener exactamente 6 clases."
+      );
+    }
+
+    // Comprobar nombres y orden.
+    const nombres = model.getClassLabels();
+
+    console.log("Clases del modelo:", nombres);
+
+    for (let i = 0; i < 6; i++) {
+
+      if (
+        nombres[i].trim().toLowerCase() !==
+        clasesEsperadas[i].toLowerCase()
+      ) {
+        throw new Error(
+          "La clase número " + (i + 1) +
+          " no coincide. Esperada: " +
+          clasesEsperadas[i] +
+          ". Encontrada: " + nombres[i]
+        );
+      }
+    }
+
+    // Configurar cámara.
+    webcam = new tmImage.Webcam(350, 350, true);
+
+    await webcam.setup();
+    await webcam.play();
+
+    document.getElementById("webcam-container")
+      .appendChild(webcam.canvas);
+
+    // Apagar inicialmente todos los LED.
+    await enviarArduino("OFF");
+
+    actualizarLEDs(-1);
+
+    // Crear barras de predicción.
+    const labelContainer =
+      document.getElementById("label-container");
+
+    labelContainer.innerHTML = "";
+
+    for (let i = 0; i < 6; i++) {
+
+      const barDiv = document.createElement("div");
+
+      barDiv.className = "prediction-bar";
+
+      barDiv.innerHTML = `
+        <div class="prediction-fill"
+             id="fill-${i}"></div>
+
+        <div class="prediction-text"
+             id="text-${i}">
+          <span>${nombres[i]}</span>
+          <span>0%</span>
+        </div>
+      `;
+
+      labelContainer.appendChild(barDiv);
+    }
+
+    isRunning = true;
+    iniciando = false;
+    ultimaClase = -1;
+    ciclo++;
+
+    status.innerText = "🟢 Modelo activo";
+
+    btnDesconectar.disabled = false;
+
+    loop(ciclo);
+
+  } catch (error) {
+
+    console.error(error);
+
+    status.innerText = "Error: " + error.message;
+
+    await detenerModelo();
+
+    alert(error.message);
+
+  } finally {
+
+    iniciando = false;
+
+    btnIniciar.disabled = !arduinoConectado;
+  }
+}
+
+
+// ======================================
+// BUCLE DEL MODELO
+// ======================================
+
+async function loop(miCiclo) {
+
+  while (isRunning && miCiclo === ciclo) {
+
+    try {
+
+      webcam.update();
+
+      await predict();
+
+    } catch (error) {
+
+      console.error(error);
+
+      status.innerText = "Error de reconocimiento";
+
+      await desconectarTodo();
+
+      return;
+    }
+
+    await new Promise(resolve =>
+      setTimeout(resolve, 100)
+    );
+  }
+}
+
+
+// ======================================
+// RECONOCIMIENTO DE LAS SEIS CLASES
+// ======================================
+
+async function predict() {
+
+  const prediction = await model.predict(webcam.canvas);
+
+  if (!isRunning) return;
+
+  let mayorProbabilidad = 0;
+  let indiceDetectado = -1;
+
+  for (let i = 0; i < maxPredictions; i++) {
+
+    const porcentaje = Math.round(
+      prediction[i].probability * 100
+    );
+
+    const fill =
+      document.getElementById("fill-" + i);
+
+    const texto =
+      document.getElementById("text-" + i);
+
+    if (fill && texto) {
+
+      fill.style.width = porcentaje + "%";
+
+      texto.innerHTML = `
+        <span>${prediction[i].className}</span>
+        <span>${porcentaje}%</span>
+      `;
+    }
+
+    if (
+      prediction[i].probability > mayorProbabilidad
+    ) {
+
+      mayorProbabilidad = prediction[i].probability;
+
+      indiceDetectado = i;
+    }
+  }
+
+  // Mostrar clase principal.
+  const objetoDetectado =
+    document.getElementById("objeto-detectado");
+
+  if (indiceDetectado >= 0) {
+
+    objetoDetectado.innerText =
+      prediction[indiceDetectado].className +
+      " (" +
+      Math.round(mayorProbabilidad * 100) +
+      "%)";
+  }
+
+  // Comprobar confianza mínima.
+  if (mayorProbabilidad >= UMBRAL) {
+
+    // Solo enviar si cambió la clase.
+    if (indiceDetectado !== ultimaClase) {
+
+      // Enviar número de clase: 0 a 5.
+      await enviarArduino(
+        String(indiceDetectado)
+      );
+
+      ultimaClase = indiceDetectado;
+
+      actualizarLEDs(indiceDetectado);
+    }
+
+  } else {
+
+    // Sin confianza suficiente: apagar todo.
+    if (ultimaClase !== -1) {
+
+      await enviarArduino("OFF");
+
+      ultimaClase = -1;
+
+      actualizarLEDs(-1);
+    }
+  }
+}
+
+
+// ======================================
+// DETENER MODELO
+// ======================================
+
+async function detenerModelo() {
+
+  isRunning = false;
+  ciclo++;
+
+  if (webcam) {
+
+    webcam.stop();
+
+    webcam = null;
+  }
+
+  if (model) {
+    model = null;
+  }
+
+  document.getElementById("webcam-container")
+    .innerHTML = "";
+
+  document.getElementById("label-container")
+    .innerHTML = "";
+
+  document.getElementById("objeto-detectado")
+    .innerText = "Esperando detección...";
+
+  actualizarLEDs(-1);
+
+  if (escritor && arduinoConectado) {
+
+    try {
+      await enviarArduino("OFF");
+    } catch (error) {
+      console.error(error);
+    }
+  }
+
+  ultimaClase = -1;
+
+  status.innerText = "Modelo desconectado";
+
+  btnIniciar.disabled = !arduinoConectado;
+
+  btnDesconectar.disabled = true;
+}
+
+
+// ======================================
+// DESCONECTAR TODO
+// ======================================
+
+async function desconectarTodo() {
+
+  await detenerModelo();
+
+  if (escritor) {
+
+    try {
+      escritor.releaseLock();
+    } catch (error) {
+      console.error(error);
+    }
+
+    escritor = null;
+  }
+
+  if (puerto) {
+
+    try {
+      await puerto.close();
+    } catch (error) {
+      console.error(error);
+    }
+
+    puerto = null;
+  }
+
+  arduinoConectado = false;
+
+  arduinoStatus.innerText =
+    "🔴 Arduino desconectado";
+
+  btnConectar.disabled = false;
+  btnIniciar.disabled = true;
+  btnDesconectar.disabled = true;
+
+  status.innerText =
+    "Modelo desconectado";
+
+  actualizarLEDs(-1);
+}
+
+
+// ======================================
+// DETECTAR DESCONEXIÓN DEL PUERTO
+// ======================================
+
+if ("serial" in navigator) {
+
+  navigator.serial.addEventListener(
+    "disconnect",
+    async (event) => {
+
+      if (puerto && event.target === puerto) {
+
+        console.warn("Arduino desconectado físicamente.");
+
+        // No se intenta escribir en un puerto que ya se desconectó.
+        isRunning = false;
+        ciclo++;
+
+        if (webcam) {
+          webcam.stop();
+          webcam = null;
+        }
+
+        model = null;
+        puerto = null;
+        escritor = null;
+        arduinoConectado = false;
+
+        document.getElementById("webcam-container")
+          .innerHTML = "";
+
+        document.getElementById("label-container")
+          .innerHTML = "";
+
+        document.getElementById("objeto-detectado")
+          .innerText = "Esperando detección...";
+
+        actualizarLEDs(-1);
+
+        arduinoStatus.innerText =
+          "🔴 Arduino desconectado";
+
+        status.innerText =
+          "Conexión interrumpida";
+
+        btnConectar.disabled = false;
+        btnIniciar.disabled = true;
+        btnDesconectar.disabled = true;
+      }
+    }
+  );
+}
+
+</script>
+
+</body>
+</html>
+
+
